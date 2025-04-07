@@ -22,11 +22,12 @@ contract Destination is AccessControl {
         _grantRole(WARDEN_ROLE, admin);
     }
 
-    function createToken(address _underlying_token, string memory name, string memory symbol)
-        public
-        onlyRole(CREATOR_ROLE)
-        returns (address)
-    {
+    function createToken(
+        address _underlying_token,
+        string memory name,
+        string memory symbol
+    ) public onlyRole(CREATOR_ROLE) returns (address) {
+        require(_underlying_token != address(0), "Invalid underlying token");
         require(underlying_tokens[_underlying_token] == address(0), "Token already created");
 
         BridgeToken newToken = new BridgeToken(_underlying_token, name, symbol, address(this));
@@ -40,10 +41,14 @@ contract Destination is AccessControl {
         return wrappedAddress;
     }
 
-    function wrap(address _underlying_token, address _recipient, uint256 _amount)
-        public
-        onlyRole(WARDEN_ROLE)
-    {
+    function wrap(
+        address _underlying_token,
+        address _recipient,
+        uint256 _amount
+    ) public onlyRole(WARDEN_ROLE) {
+        require(_recipient != address(0), "Invalid recipient");
+        require(_amount > 0, "Amount must be greater than 0");
+
         address wrapped = underlying_tokens[_underlying_token];
         require(wrapped != address(0), "Underlying token not registered");
 
@@ -52,7 +57,14 @@ contract Destination is AccessControl {
         emit Wrap(_underlying_token, wrapped, _recipient, _amount);
     }
 
-    function unwrap(address _wrapped_token, address _recipient, uint256 _amount) public {
+    function unwrap(
+        address _wrapped_token,
+        address _recipient,
+        uint256 _amount
+    ) public {
+        require(_recipient != address(0), "Invalid recipient");
+        require(_amount > 0, "Amount must be greater than 0");
+
         address underlying = wrapped_tokens[_wrapped_token];
         require(underlying != address(0), "Wrapped token not registered");
 
