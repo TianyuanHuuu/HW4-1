@@ -1,66 +1,47 @@
-// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.17;
+function createToken(address _underlying_token, string memory name, string memory symbol) 
+    public onlyRole(CREATOR_ROLE) returns (address) 
+{
+    require(_underlying_token != address(0), "Invalid underlying token");
 
-import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import "@openzeppelin/contracts/access/AccessControl.sol";
-import "./BridgeToken.sol";
+    // Prevent duplicate creation
+    require(wrapped_tokens[_underlying_token] == address(0), "Token already exists");
 
-contract Destination is AccessControl {
-    bytes32 public constant WARDEN_ROLE = keccak256("BRIDGE_WARDEN_ROLE");
-    bytes32 public constant CREATOR_ROLE = keccak256("CREATOR_ROLE");
+    // Deploy new wrapped token
+    BridgeToken wrapped = new BridgeToken(name, symbol);
+    address wrappedAddress = address(wrapped);
 
-    mapping(address => address) public underlying_tokens; // maps underlying token address to wrapped token
-    mapping(address => address) public wrapped_tokens;    // maps wrapped token to underlying token
-    address[] public tokens;
+    // Map the tokens
+    underlying_tokens[wrappedAddress] = _underlying_token;
+    wrapped_tokens[_underlying_token] = wrappedAddress;
+    tokens.push(_underlying_token);
 
-    event Creation(address indexed underlying_token, address indexed wrapped_token);
-    event Wrap(address indexed underlying_token, address indexed wrapped_token, address indexed to, uint256 amount);
-    event Unwrap(address indexed underlying_token, address indexed wrapped_token, address frm, address indexed to, uint256 amount);
+    emit Creation(_underlying_token, wrappedAddress);
+    return wrappedAddress;
+}
 
-    constructor(address admin) {
-        _grantRole(DEFAULT_ADMIN_ROLE, admin);
-        _grantRole(CREATOR_ROLE, admin);
-        _grantRole(WARDEN_ROLE, admin);
-    }
+function wrap(address _underlying_token, address _recipient, uint256 _amount) 
+    public onlyRole(WARDEN_ROLE) 
+{
+    require(wrapped_tokens[_underlying_token] != address(0), "Token not registered");
+    require(_recipient != address(0), "Invalid recipient");
 
-    function createToken(address _underlying_token, string memory name, string memory symbol) 
-        public 
-        onlyRole(CREATOR_ROLE) 
-        returns(address) 
-    {
-        require(underlying_tokens[_underlying_token] == address(0), "Token already registered");
+    address wrapped = wrapped_tokens[_underlying_token];
+    BridgeToken(wrapped).mint(_recipient, _amount);
 
-        BridgeToken wrapped = new BridgeToken(_underlying_token, name, symbol);
-        address wrappedAddr = address(wrapped);
+    emit Wrap(_underlying_token, wrapped, _recipient, _amount);
+}
 
-        underlying_tokens[_underlying_token] = wrappedAddr;
-        wrapped_tokens[wrappedAddr] = _underlying_token;
-        tokens.push(_underlying_token);
+function unwrap(address _wrapped_token, address _recipient, uint256 _amount) 
+    public 
+{
+    require(underlying_tokens[_wrapped_token] != address(0), "Invalid wrapped token");
+    require(_recipient != address(0), "Invalid recipient");
 
-        emit Creation(_underlying_token, wrappedAddr);
-        return wrappedAddr;
-    }
+    BridgeToken wrapped = BridgeToken(_wrapped_token);
+    require(wrapped.balanceOf(msg.sender) >= _amount, "Insufficient balance");
 
-    function wrap(address _underlying_token, address _recipient, uint256 _amount) 
-        public 
-        onlyRole(WARDEN_ROLE) 
-    {
-        address wrappedAddr = underlying_tokens[_underlying_token];
-        require(wrappedAddr != address(0), "Token not registered");
+    wrapped.burnFrom(msg.sender, _amount);
 
-        BridgeToken(wrappedAddr).mint(_recipient, _amount);
-
-        emit Wrap(_underlying_token, wrappedAddr, _recipient, _amount);
-    }
-
-    function unwrap(address _wrapped_token, address _recipient, uint256 _amount) 
-        public 
-    {
-        require(wrapped_tokens[_wrapped_token] != address(0), "Token not registered");
-
-        BridgeToken(_wrapped_token).burnFrom(msg.sender, _amount);
-
-        address underlyingAddr = wrapped_tokens[_wrapped_token];
-        emit Unwrap(underlyingAddr, _wrapped_token, msg.sender, _recipient, _amount);
-    }
+    address underlying = underlying_tokens[_wrapped_token];
+    emit Unwrap(underlying, _wrapped_token, msg.sender, _recipient, _amount);
 }
