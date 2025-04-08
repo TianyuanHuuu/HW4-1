@@ -8,8 +8,11 @@ contract Destination is AccessControl {
     bytes32 public constant WARDEN_ROLE = keccak256("BRIDGE_WARDEN_ROLE");
     bytes32 public constant CREATOR_ROLE = keccak256("CREATOR_ROLE");
 
-    mapping(address => address) public underlying_tokens; // underlying => wrapped
-    mapping(address => address) public wrapped_tokens;    // wrapped => underlying
+    // Maps underlying token => wrapped token and vice versa
+    mapping(address => address) public underlying_tokens;
+    mapping(address => address) public wrapped_tokens;
+
+    // List of all underlying tokens used
     address[] public tokens;
 
     event Creation(address indexed underlying_token, address indexed wrapped_token);
@@ -17,18 +20,20 @@ contract Destination is AccessControl {
     event Unwrap(address indexed underlying_token, address indexed wrapped_token, address frm, address indexed to, uint256 amount);
 
     constructor(address admin) {
+        require(admin != address(0), "Admin cannot be zero");
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
         _grantRole(CREATOR_ROLE, admin);
         _grantRole(WARDEN_ROLE, admin);
     }
 
+    /// @notice Create a new wrapped token for the given underlying token
     function createToken(
         address _underlying_token,
         string memory name,
         string memory symbol
-    ) public onlyRole(CREATOR_ROLE) returns (address) {
+    ) external onlyRole(CREATOR_ROLE) returns (address) {
         require(_underlying_token != address(0), "Invalid underlying token");
-        require(underlying_tokens[_underlying_token] == address(0), "Token already created");
+        require(underlying_tokens[_underlying_token] == address(0), "Token already exists");
 
         BridgeToken newToken = new BridgeToken(_underlying_token, name, symbol, address(this));
         address wrappedAddress = address(newToken);
@@ -41,13 +46,14 @@ contract Destination is AccessControl {
         return wrappedAddress;
     }
 
+    /// @notice Mint wrapped tokens to a recipient
     function wrap(
         address _underlying_token,
         address _recipient,
         uint256 _amount
-    ) public onlyRole(WARDEN_ROLE) {
+    ) external onlyRole(WARDEN_ROLE) {
         require(_recipient != address(0), "Invalid recipient");
-        require(_amount > 0, "Amount must be greater than 0");
+        require(_amount > 0, "Amount must be > 0");
 
         address wrapped = underlying_tokens[_underlying_token];
         require(wrapped != address(0), "Underlying token not registered");
@@ -57,13 +63,14 @@ contract Destination is AccessControl {
         emit Wrap(_underlying_token, wrapped, _recipient, _amount);
     }
 
+    /// @notice Burn wrapped tokens and emit an unwrap event
     function unwrap(
         address _wrapped_token,
         address _recipient,
         uint256 _amount
-    ) public {
+    ) external {
         require(_recipient != address(0), "Invalid recipient");
-        require(_amount > 0, "Amount must be greater than 0");
+        require(_amount > 0, "Amount must be > 0");
 
         address underlying = wrapped_tokens[_wrapped_token];
         require(underlying != address(0), "Wrapped token not registered");
@@ -71,5 +78,10 @@ contract Destination is AccessControl {
         BridgeToken(_wrapped_token).burnFrom(msg.sender, _amount);
 
         emit Unwrap(underlying, _wrapped_token, msg.sender, _recipient, _amount);
+    }
+
+    /// @notice View function to get total supported tokens
+    function getSupportedTokens() external view returns (address[] memory) {
+        return tokens;
     }
 }
