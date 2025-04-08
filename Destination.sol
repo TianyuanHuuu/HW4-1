@@ -3,22 +3,23 @@ pragma solidity ^0.8.17;
 
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "./BridgeToken.sol";
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 contract Destination is AccessControl {
+    bytes32 public constant WARDEN_ROLE = keccak256("BRIDGE_WARDEN_ROLE");
     bytes32 public constant CREATOR_ROLE = keccak256("CREATOR_ROLE");
 
-    mapping(address => address) public underlying_tokens;
-    mapping(address => address) public wrapped_tokens;
+    mapping(address => address) public underlying_tokens; // underlying => wrapped
+    mapping(address => address) public wrapped_tokens;    // wrapped => underlying
     address[] public tokens;
 
-    event Creation(address indexed underlying, address indexed wrapped);
-    event Wrapped(address indexed sender, address indexed recipient, address indexed underlying, uint256 amount);
-    event Unwrapped(address indexed sender, address indexed recipient, address indexed wrapped, uint256 amount);
+    event Creation(address indexed underlying_token, address indexed wrapped_token);
+    event Wrap(address indexed underlying_token, address indexed wrapped_token, address indexed to, uint256 amount);
+    event Unwrap(address indexed underlying_token, address indexed wrapped_token, address frm, address indexed to, uint256 amount);
 
-    constructor() {
-        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
-        _grantRole(CREATOR_ROLE, msg.sender);
+    constructor(address admin) {
+        _grantRole(DEFAULT_ADMIN_ROLE, admin);
+        _grantRole(CREATOR_ROLE, admin);
+        _grantRole(WARDEN_ROLE, admin);
     }
 
     function createToken(
@@ -40,39 +41,35 @@ contract Destination is AccessControl {
         return wrappedAddress;
     }
 
-    function wrap(address _underlying, address _recipient, uint256 _amount) external {
-        require(_underlying != address(0), "Invalid token");
-        address wrapped = underlying_tokens[_underlying];
-        require(wrapped != address(0), "Token not registered");
-        require(_amount > 0, "Amount must be > 0");
+    function wrap(
+        address _underlying_token,
+        address _recipient,
+        uint256 _amount
+    ) public onlyRole(WARDEN_ROLE) {
+        require(_recipient != address(0), "Invalid recipient");
+        require(_amount > 0, "Amount must be greater than 0");
 
-        require(IERC20(_underlying).transferFrom(msg.sender, address(this), _amount), "Transfer failed");
+        address wrapped = underlying_tokens[_underlying_token];
+        require(wrapped != address(0), "Underlying token not registered");
+
         BridgeToken(wrapped).mint(_recipient, _amount);
 
-        emit Wrapped(msg.sender, _recipient, _underlying, _amount);
+        emit Wrap(_underlying_token, wrapped, _recipient, _amount);
     }
 
-    function unwrap(address _wrapped, address _recipient, uint256 _amount) external {
-        require(_wrapped != address(0), "Invalid token");
-        address underlying = wrapped_tokens[_wrapped];
-        require(underlying != address(0), "Token not registered");
-        require(_amount > 0, "Amount must be > 0");
+    function unwrap(
+        address _wrapped_token,
+        address _recipient,
+        uint256 _amount
+    ) public {
+        require(_recipient != address(0), "Invalid recipient");
+        require(_amount > 0, "Amount must be greater than 0");
 
-        BridgeToken(_wrapped).burnFrom(msg.sender, _amount);
-        require(IERC20(underlying).transfer(_recipient, _amount), "Transfer failed");
+        address underlying = wrapped_tokens[_wrapped_token];
+        require(underlying != address(0), "Wrapped token not registered");
 
-        emit Unwrapped(msg.sender, _recipient, _wrapped, _amount);
-    }
+        BridgeToken(_wrapped_token).burnFrom(msg.sender, _amount);
 
-    function getWrappedToken(address _underlying) external view returns (address) {
-        return underlying_tokens[_underlying];
-    }
-
-    function getUnderlyingToken(address _wrapped) external view returns (address) {
-        return wrapped_tokens[_wrapped];
-    }
-
-    function getAllTokens() external view returns (address[] memory) {
-        return tokens;
+        emit Unwrap(underlying, _wrapped_token, msg.sender, _recipient, _amount);
     }
 }
